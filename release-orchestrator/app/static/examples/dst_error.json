@@ -1,0 +1,13 @@
+{
+  "services": [
+    {
+      "name": "web",
+      "team": "frontend",
+      "rollback_minutes": 20,
+      "windows": [
+        {"label": "春季拨快（该时刻不存在）", "start": "2026-03-08T02:30:00", "end": "2026-03-08T03:30:00", "timezone": "America/New_York"},
+        {"label": "秋季回拨（该时刻重复两次）", "start": "2026-11-01T01:30:00", "end": "2026-11-01T02:30:00", "timezone": "America/New_York"}
+      ]
+    }
+  ]
+}

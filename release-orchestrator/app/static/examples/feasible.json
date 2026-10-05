@@ -1,0 +1,46 @@
+{
+  "services": [
+    {
+      "name": "auth-service",
+      "team": "identity",
+      "resources": ["core-db"],
+      "rollback_minutes": 30,
+      "windows": [
+        {"label": "纽约窗口A", "start": "2026-10-07T01:00:00", "end": "2026-10-07T02:00:00", "timezone": "America/New_York"},
+        {"label": "纽约窗口B", "start": "2026-10-08T01:00:00", "end": "2026-10-08T02:00:00", "timezone": "America/New_York"}
+      ]
+    },
+    {
+      "name": "billing-service",
+      "team": "payments",
+      "resources": ["core-db"],
+      "rollback_minutes": 45,
+      "windows": [
+        {"label": "上海窗口A", "start": "2026-10-07T10:00:00", "end": "2026-10-07T11:00:00", "timezone": "Asia/Shanghai"},
+        {"label": "上海窗口B", "start": "2026-10-08T10:00:00", "end": "2026-10-08T11:00:00", "timezone": "Asia/Shanghai"}
+      ]
+    },
+    {
+      "name": "notify-service",
+      "team": "growth",
+      "resources": ["mq"],
+      "rollback_minutes": 15,
+      "windows": [
+        {"label": "UTC窗口A", "start": "2026-10-07T12:00:00Z", "end": "2026-10-07T12:30:00Z"},
+        {"label": "UTC窗口B", "start": "2026-10-08T12:00:00Z", "end": "2026-10-08T12:30:00Z"}
+      ]
+    }
+  ],
+  "dependencies": [
+    {"before": "auth-service", "after": "billing-service", "min_gap_minutes": 60, "note": "计费依赖鉴权 schema 就绪"},
+    {"before": "billing-service", "after": "notify-service", "min_gap_minutes": 30}
+  ],
+  "blackouts": [
+    {"team": "payments", "label": "支付团队结算禁发", "start": "2026-10-07T00:00:00", "end": "2026-10-07T09:30:00", "timezone": "Asia/Shanghai"}
+  ],
+  "freezes": [
+    {"label": "季度审计冻结", "start": "2026-10-09T00:00:00Z", "end": "2026-10-12T00:00:00Z"}
+  ],
+  "resource_spacing_minutes": 15,
+  "max_solutions": 1
+}

@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>跨时区发布窗口编排</title>
+<style>
+  :root { --bd:#d0d7de; --fg:#1f2328; --mut:#57606a; --bg:#f6f8fa; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.55 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; color:var(--fg); background:var(--bg); }
+  header { padding:14px 22px; background:#0d1117; color:#fff; }
+  header h1 { margin:0; font-size:17px; }
+  header p { margin:2px 0 0; font-size:12px; color:#9da7b3; }
+  main { display:grid; grid-template-columns:minmax(380px,46%) 1fr; gap:16px; padding:16px 22px; align-items:start; }
+  @media (max-width:900px){ main{ grid-template-columns:1fr; } }
+  .card { background:#fff; border:1px solid var(--bd); border-radius:8px; padding:14px; }
+  .card h2 { margin:0 0 10px; font-size:14px; }
+  textarea { width:100%; min-height:430px; font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+             border:1px solid var(--bd); border-radius:6px; padding:10px; resize:vertical; tab-size:2; }
+  .btns { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0; }
+  button { padding:6px 12px; border:1px solid var(--bd); border-radius:6px; background:#fff; cursor:pointer; font-size:13px; }
+  button:hover { background:var(--bg); }
+  button.primary { background:#1f6feb; border-color:#1f6feb; color:#fff; font-weight:600; }
+  button.primary:hover { background:#1a5fd0; }
+  .banner { padding:10px 14px; border-radius:8px; margin-bottom:12px; font-weight:600; }
+  .ok   { background:#dafbe1; border:1px solid #2da44e; color:#116329; }
+  .bad  { background:#ffebe9; border:1px solid #cf222e; color:#82071e; }
+  .warn { background:#fff8c5; border:1px solid #d4a72c; color:#7d4e00; }
+  .mut  { color:var(--mut); font-weight:400; font-size:12px; }
+  table { border-collapse:collapse; width:100%; margin:8px 0 16px; font-size:12.5px; }
+  th,td { border:1px solid var(--bd); padding:5px 8px; text-align:left; vertical-align:top; }
+  th { background:var(--bg); white-space:nowrap; }
+  td code, .mono { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; }
+  ul { margin:4px 0; padding-left:18px; }
+  .blk { border:1px solid #cf222e; border-left-width:4px; border-radius:6px; padding:10px 12px; margin:10px 0; }
+  .blk h3 { margin:0 0 6px; font-size:13px; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:10px; font-size:11px; background:#ddf4ff; color:#0969da; margin-right:6px; }
+  h3.sec { font-size:13px; margin:18px 0 6px; color:var(--mut); text-transform:uppercase; letter-spacing:.4px; }
+  .err { border:1px solid #d4a72c; border-left-width:4px; border-radius:6px; padding:10px 12px; margin:10px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>跨时区发布窗口编排</h1>
+  <p>依赖先后 · 间隔 · 资源占用 · 团队禁发 · 维护冻结 · 回滚缓冲 ｜ DST 重复/不存在时间强制显式修正 ｜ 不可行时返回阻塞约束组合</p>
+</header>
+<main>
+  <div class="card">
+    <h2>请求（JSON）</h2>
+    <div class="btns">
+      <button data-ex="feasible">可行示例</button>
+      <button data-ex="infeasible">不可行示例</button>
+      <button data-ex="dst_error">DST 错误示例</button>
+      <button class="primary" id="submit">提交排程 →</button>
+    </div>
+    <textarea id="payload" spellcheck="false"></textarea>
+    <p class="mut">约束语义：占用区间 = 窗口 + 回滚缓冲；依赖间隔自上游占用结束起算；共享资源的服务占用区间不得重叠且满足资源间隔；禁发/冻结与占用区间不得相交。</p>
+  </div>
+  <div class="card">
+    <h2>结果</h2>
+    <div id="result"><p class="mut">点击左侧“提交排程”，或先载入示例。</p></div>
+  </div>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+async function loadExample(name){
+  const r = await fetch(`/static/examples/${name}.json`);
+  $("#payload").value = JSON.stringify(await r.json(), null, 2);
+}
+document.querySelectorAll("[data-ex]").forEach(b => b.onclick = () => loadExample(b.dataset.ex));
+
+$("#submit").onclick = async () => {
+  let body;
+  try { body = JSON.parse($("#payload").value); }
+  catch(e){ $("#result").innerHTML = `<div class="banner warn">JSON 解析失败：${esc(e.message)}</div>`; return; }
+  $("#result").innerHTML = `<p class="mut">求解中…</p>`;
+  let res, data;
+  try {
+    res = await fetch("/api/schedule", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+    data = await res.json();
+  } catch(e){ $("#result").innerHTML = `<div class="banner bad">请求失败：${esc(e.message)}</div>`; return; }
+  render(data, res.status);
+};
+
+const PROBLEM_ZH = {ambiguous:"重复时间（DST 回拨）", nonexistent:"不存在的时间（DST 拨快）",
+  missing_timezone:"缺少时区", unknown_timezone:"未知时区", bad_format:"格式错误"};
+
+function render(d, httpStatus){
+  let h = "";
+  if (d.status === "feasible"){
+    h += `<div class="banner ok">✔ 可行排程 <span class="mut">${esc(d.message||"")}</span></div>`;
+    h += `<h3 class="sec">排程（按开始时间排序）</h3><table><tr>
+      <th>服务</th><th>团队</th><th>窗口</th><th>本地开始</th><th>本地结束</th>
+      <th>UTC 开始</th><th>UTC 结束</th><th>回滚缓冲至 (UTC)</th></tr>`;
+    for (const r of d.schedule)
+      h += `<tr><td><b>${esc(r.service)}</b></td><td>${esc(r.team||"-")}</td><td>${esc(r.window)}</td>
+        <td class="mono">${esc(r.start_local)}${r.timezone?` (${esc(r.timezone)})`:""}</td>
+        <td class="mono">${esc(r.end_local)}</td>
+        <td class="mono">${esc(r.start_utc)}</td><td class="mono">${esc(r.end_utc)}</td>
+        <td class="mono">${esc(r.rollback_until_utc)}</td></tr>`;
+    h += `</table>`;
+    if (d.constraint_margins?.length){
+      h += `<h3 class="sec">约束余量（分钟，0 = 刚好卡线）</h3><table><tr><th>约束</th><th>剩余间隔</th></tr>`;
+      for (const m of d.constraint_margins)
+        h += `<tr><td>${esc(m.constraint)}</td><td>${m.slack_minutes}${m.tight?" ⚠️":""}</td></tr>`;
+      h += `</table>`;
+    }
+    h += rejectedHtml(d.rejected_windows);
+  } else if (d.status === "infeasible"){
+    h += `<div class="banner bad">✖ 无可行排程 <span class="mut">${esc(d.message||"")}</span></div>`;
+    h += `<h3 class="sec">阻塞约束组合</h3>`;
+    for (const b of d.blocking_constraints||[]){
+      h += `<div class="blk"><h3><span class="tag">${esc(b.type)}</span>${esc(b.summary)}</h3>
+        <div class="mut">涉及服务：${(b.services||[]).map(esc).join("、")}</div>`;
+      if (b.constraints?.length) h += `<ul>${b.constraints.map(c=>`<li>${esc(c)}</li>`).join("")}</ul>`;
+      if (typeof b.details === "string") h += `<p>${esc(b.details)}</p>`;
+      if (Array.isArray(b.details)) for (const det of b.details){
+        h += `<div class="mono" style="margin:6px 0">窗口 ${esc(det.window.window)}（${esc(det.window.start_utc)} – ${esc(det.window.end_utc)}）</div><ul>${det.reasons.map(r=>`<li>${esc(r)}</li>`).join("")}</ul>`;
+      }
+      h += `</div>`;
+    }
+    h += rejectedHtml(d.rejected_windows);
+  } else if (d.status === "invalid_time"){
+    h += `<div class="banner warn">⚠ 时间输入需要修正 <span class="mut">${esc(d.message||"")}</span></div>`;
+    for (const e of d.errors||[]){
+      h += `<div class="err"><b>${esc(e.field)}</b> <span class="tag">${esc(PROBLEM_ZH[e.problem]||e.problem)}</span>
+        <div class="mono mut">输入值：${esc(e.value)}${e.timezone?` ｜ 时区：${esc(e.timezone)}`:""}</div>
+        <p>${esc(e.message)}</p>`;
+      if (e.suggestions?.length) h += `可选修正：<ul>${e.suggestions.map(s=>`<li class="mono">${esc(s)}</li>`).join("")}</ul>`;
+      h += `</div>`;
+    }
+    if (d.structural_errors?.length) h += `<ul>${d.structural_errors.map(s=>`<li>${esc(s)}</li>`).join("")}</ul>`;
+  } else {
+    h += `<div class="banner warn">${esc(d.status||"error")}</div><ul>${(d.errors||[d.message||JSON.stringify(d)]).map(e=>`<li>${esc(e)}</li>`).join("")}</ul>`;
+  }
+  if (d.stats) h += `<p class="mut">统计：${Object.entries(d.stats).map(([k,v])=>`${k}=${v}`).join("，")}</p>`;
+  $("#result").innerHTML = h;
+}
+
+function rejectedHtml(list){
+  if (!list?.length) return "";
+  let h = `<h3 class="sec">被排除的候选窗口及原因（每个冲突的解释）</h3>
+    <table><tr><th>服务</th><th>窗口</th><th>UTC 区间</th><th>排除原因</th></tr>`;
+  for (const r of list)
+    h += `<tr><td>${esc(r.service)}</td><td>${esc(r.window.window)}</td>
+      <td class="mono">${esc(r.window.start_utc)} – ${esc(r.window.end_utc)}</td>
+      <td><ul>${r.reasons.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></td></tr>`;
+  return h + `</table>`;
+}
+
+loadExample("feasible");
+</script>
+</body>
+</html>
